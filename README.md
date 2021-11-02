@@ -1,3 +1,3 @@
-# goupnpsub
+# go-upnpsub
 
-Go library for subscribing to UPnP events.
+Go library that handles subscribing to UPnP events.

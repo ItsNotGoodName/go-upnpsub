@@ -1,4 +1,4 @@
-package goupnpsub
+package upnpsub
 
 import (
 	"context"

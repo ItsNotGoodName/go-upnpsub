@@ -1,6 +1,6 @@
-// Package goupnpsub handles subscribing to UPnP events.
+// Package upnpsub handles subscribing to UPnP events.
 // It tries to follow section 4 of "UPnP Device Architecture 1.0".
-package goupnpsub
+package upnpsub
 
 import (
 	"context"

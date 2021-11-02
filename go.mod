@@ -1,3 +1,3 @@
-module github.com/ItsNotGoodName/goupnpsub
+module github.com/ItsNotGoodName/go-upnpsub
 
 go 1.17
