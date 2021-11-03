@@ -203,11 +203,12 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription, d time.Duration) {
 	log.Println("ControlPoint.subscriptionLoop: started")
 
-	defer close(sub.Done)
-
 	t := time.NewTimer(d)
 	renew := func() {
-		d, _ = cp.renew(ctx, sub)
+		d, err := cp.renew(ctx, sub)
+		if err != nil {
+			log.Print("ControlPoint.subscriptionLoop:", err)
+		}
 		t.Reset(d)
 	}
 
@@ -228,6 +229,8 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 				log.Print("ControlPoint.subscriptionLoop:", err)
 			}
 			cancel()
+
+			close(sub.Done)
 
 			log.Println("ControlPoint.subscriptionLoop: cleanup finished")
 			return
