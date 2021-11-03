@@ -39,7 +39,9 @@ func (cp *ControlPoint) Start() {
 	log.Fatal(http.ListenAndServe(":"+cp.listenPort, nil))
 }
 
-// NewSubscription creates and returns a Subscription.
+// NewSubscription subscribes to event publisher and returns a Subscription.
+//
+// It errors if the event publisher is unreachable or if the initial SUBSCRIBE request fails.
 func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) (*Subscription, error) {
 	// Find callback ip
 	callbackIP, err := findCallbackIP(eventURL)
@@ -58,9 +60,16 @@ func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) 
 		setActiveChan: make(chan bool),
 	}
 
-	// Start sub loops
-	go cp.subscriptionLoop(ctx, sub)
 	go sub.activeLoop()
+
+	// Subscribe
+	d, err := cp.renew(ctx, sub)
+	if err != nil {
+		close(sub.Done)
+		return nil, err
+	}
+
+	go cp.subscriptionLoop(ctx, sub, d)
 
 	return sub, nil
 }
@@ -191,13 +200,16 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 }
 
 // subscriptionLoop handles sending subscribe requests to event publisher.
-func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription) {
+func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription, d time.Duration) {
 	log.Println("ControlPoint.subscriptionLoop: started")
 
 	defer close(sub.Done)
 
-	// Subscribe
-	t := time.NewTimer(cp.renew(ctx, sub))
+	t := time.NewTimer(d)
+	renew := func() {
+		d, _ = cp.renew(ctx, sub)
+		t.Reset(d)
+	}
 
 	for {
 		select {
@@ -220,36 +232,35 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription)
 			log.Println("ControlPoint.subscriptionLoop: cleanup finished")
 			return
 		case <-sub.renewChan:
-			log.Println("ControlPoint.subscriptionLoop: starting manual renewal")
-
 			// Manual renew
+			log.Println("ControlPoint.subscriptionLoop: starting manual renewal")
 			if !t.Stop() {
 				<-t.C
 			}
-			t.Reset(cp.renew(ctx, sub))
+			renew()
 		case <-t.C:
 			// Renew
-			t.Reset(cp.renew(ctx, sub))
+			renew()
 		}
 	}
 }
 
 // renew handles subscribing or resubscribing.
-func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) time.Duration {
+func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Duration, error) {
 	if !<-sub.Active {
 		if err := cp.subscribe(ctx, sub); err != nil {
 			log.Print("ControlPoint.subscriptionLoop:", err)
-			return getRenewDuration(sub)
+			return getRenewDuration(sub), err
 		}
 		sub.setActive(ctx, true)
-		duration := getRenewDuration(sub)
-		log.Printf("ControlPoint.subscriptionLoop: subscribe successful, will resubscribe in %s intervals", duration)
-		return duration
+		d := getRenewDuration(sub)
+		log.Printf("ControlPoint.subscriptionLoop: subscribe successful, will resubscribe in %s intervals", d)
+		return d, nil
 	}
 	if err := sub.resubscribe(ctx); err != nil {
 		sub.setActive(ctx, false)
 		log.Print("ControlPoint.subscriptionLoop:", err)
-		return DefaultTimeout
+		return DefaultTimeout, err
 	}
-	return getRenewDuration(sub)
+	return getRenewDuration(sub), nil
 }
