@@ -63,9 +63,9 @@ func unmarshalTimeout(timeout string) (int, error) {
 func findCallbackIP(url *url.URL) (string, error) {
 	// https://stackoverflow.com/a/37382208
 	conn, err := net.Dial("udp", url.Host)
-	conn.Close()
 	if err != nil {
 		return "", err
 	}
+	conn.Close()
 	return conn.LocalAddr().(*net.UDPAddr).IP.String(), nil
 }
