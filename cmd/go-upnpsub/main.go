@@ -47,7 +47,7 @@ func main() {
 		case event := <-sub.Event:
 			fmt.Println(">>>>> SEQ", event.SEQ)
 			for _, e := range event.Properties {
-				fmt.Println(e.Name, "=", e.Value)
+				fmt.Printf("%q = %q\n", e.Name, e.Value)
 			}
 		}
 	}
