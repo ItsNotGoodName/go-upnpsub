@@ -23,6 +23,7 @@ func NewControlPoint() *ControlPoint {
 // NewControlPoint creates a ControlPoint that listens on a specific port.
 func NewControlPointWithPort(listenPort int) *ControlPoint {
 	cp := &ControlPoint{
+		client:     &http.Client{},
 		listenURI:  ListenURI,
 		listenPort: fmt.Sprint(listenPort),
 		sidMap:     make(map[string]*Subscription),
@@ -54,7 +55,7 @@ func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) 
 		Active:        make(chan bool),
 		Done:          make(chan bool),
 		Event:         make(chan *Event),
-		callback:      "<http://" + callbackIP + ":" + cp.listenPort + cp.listenURI + ">",
+		callback:      fmt.Sprintf("<http://%s:%s%s>", callbackIP, cp.listenPort, cp.listenURI),
 		eventURL:      eventURL.String(),
 		renewChan:     make(chan bool),
 		setActiveChan: make(chan bool),
@@ -145,6 +146,75 @@ func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// subscriptionLoop handles sending subscribe requests to event publisher.
+func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription, d time.Duration) {
+	log.Println("ControlPoint.subscriptionLoop: started")
+
+	t := time.NewTimer(d)
+	renew := func() {
+		d, err := cp.renew(ctx, sub)
+		if err != nil {
+			log.Print("ControlPoint.subscriptionLoop:", err)
+		}
+		t.Reset(d)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("ControlPoint.subscriptionLoop: ctx is done, starting cleanup")
+
+			// Delete sub.sid from sidMap
+			cp.sidMapRWMu.Lock()
+			delete(cp.sidMap, sub.sid)
+			cp.sidMapRWMu.Unlock()
+
+			// Unsubscribe
+			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+			if err := cp.unsubscribe(ctx, sub); err != nil {
+				log.Print("ControlPoint.subscriptionLoop:", err)
+			}
+			cancel()
+
+			close(sub.Done)
+
+			log.Println("ControlPoint.subscriptionLoop: cleanup finished")
+			return
+		case <-sub.renewChan:
+			// Manual renew
+			log.Println("ControlPoint.subscriptionLoop: starting manual renewal")
+			if !t.Stop() {
+				<-t.C
+			}
+			renew()
+		case <-t.C:
+			// Renew
+			renew()
+		}
+	}
+}
+
+// renew handles subscribing or resubscribing.
+func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Duration, error) {
+	if !<-sub.Active {
+		if err := cp.subscribe(ctx, sub); err != nil {
+			log.Print("ControlPoint.subscriptionLoop:", err)
+			return getRenewDuration(sub), err
+		}
+		sub.setActive(ctx, true)
+		d := getRenewDuration(sub)
+		log.Printf("ControlPoint.subscriptionLoop: subscribe successful, will resubscribe in %s intervals", d)
+		return d, nil
+	}
+	if err := cp.resubscribe(ctx, sub); err != nil {
+		sub.setActive(ctx, false)
+		log.Print("ControlPoint.subscriptionLoop:", err)
+		return DefaultTimeout, err
+	}
+	return getRenewDuration(sub), nil
+}
+
 // subscribe sends SUBSCRIBE request to event publisher.
 func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error {
 	// Create request
@@ -160,8 +230,7 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 	req.Header.Add("TIMEOUT", Timeout)
 
 	// Execute request
-	client := http.Client{}
-	res, err := client.Do(req)
+	res, err := cp.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -199,71 +268,73 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 	return nil
 }
 
-// subscriptionLoop handles sending subscribe requests to event publisher.
-func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription, d time.Duration) {
-	log.Println("ControlPoint.subscriptionLoop: started")
+// unsubscribe sends an UNSUBSCRIBE request to event publisher.
+func (cp *ControlPoint) unsubscribe(ctx context.Context, sub *Subscription) error {
+	// Create request
+	req, err := http.NewRequest("UNSUBSCRIBE", sub.eventURL, nil)
+	if err != nil {
+		return err
+	}
+	req = req.WithContext(ctx)
 
-	t := time.NewTimer(d)
-	renew := func() {
-		d, err := cp.renew(ctx, sub)
-		if err != nil {
-			log.Print("ControlPoint.subscriptionLoop:", err)
-		}
-		t.Reset(d)
+	// Add headers to request
+	req.Header.Add("SID", sub.sid)
+
+	// Execute request
+	res, err := cp.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	// Check if request failed
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("subscribe: response's status code is invalid, %s", res.Status)
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("ControlPoint.subscriptionLoop: ctx is done, starting cleanup")
-
-			// Delete sub.sid from sidMap
-			cp.sidMapRWMu.Lock()
-			delete(cp.sidMap, sub.sid)
-			cp.sidMapRWMu.Unlock()
-
-			// Unsubscribe
-			ctx := context.Background()
-			ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
-			if err := sub.unsubscribe(ctx); err != nil {
-				log.Print("ControlPoint.subscriptionLoop:", err)
-			}
-			cancel()
-
-			close(sub.Done)
-
-			log.Println("ControlPoint.subscriptionLoop: cleanup finished")
-			return
-		case <-sub.renewChan:
-			// Manual renew
-			log.Println("ControlPoint.subscriptionLoop: starting manual renewal")
-			if !t.Stop() {
-				<-t.C
-			}
-			renew()
-		case <-t.C:
-			// Renew
-			renew()
-		}
-	}
+	return nil
 }
 
-// renew handles subscribing or resubscribing.
-func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Duration, error) {
-	if !<-sub.Active {
-		if err := cp.subscribe(ctx, sub); err != nil {
-			log.Print("ControlPoint.subscriptionLoop:", err)
-			return getRenewDuration(sub), err
-		}
-		sub.setActive(ctx, true)
-		d := getRenewDuration(sub)
-		log.Printf("ControlPoint.subscriptionLoop: subscribe successful, will resubscribe in %s intervals", d)
-		return d, nil
+// resubscribe sends a SUBSCRIBE request to event publisher that renews the existing subscription.
+func (cp *ControlPoint) resubscribe(ctx context.Context, sub *Subscription) error {
+	// Create request
+	req, err := http.NewRequest("SUBSCRIBE", sub.eventURL, nil)
+	if err != nil {
+		return err
 	}
-	if err := sub.resubscribe(ctx); err != nil {
-		sub.setActive(ctx, false)
-		log.Print("ControlPoint.subscriptionLoop:", err)
-		return DefaultTimeout, err
+	req = req.WithContext(ctx)
+
+	// Add headers to request
+	req.Header.Add("SID", sub.sid)
+	req.Header.Add("TIMEOUT", Timeout)
+
+	// Execute request
+	res, err := cp.client.Do(req)
+	if err != nil {
+		return err
 	}
-	return getRenewDuration(sub), nil
+	defer res.Body.Close()
+
+	// Check if request failed
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("resubscribe: response's status code is invalid, %s", res.Status)
+	}
+
+	// Check request's SID header
+	sid := res.Header.Get("SID")
+	if sid == "" {
+		return errors.New("resubscribe: response did not supply a sid")
+	}
+	if sid != sub.sid {
+		return fmt.Errorf("resubscribe: response's sid does not match sub's sid, %s != %s", sid, sub.sid)
+	}
+
+	// Update sub's timeout
+	timeout, err := unmarshalTimeout(res.Header.Get("timeout"))
+	if err != nil {
+		return err
+	}
+	sub.timeout = timeout
+
+	return nil
 }

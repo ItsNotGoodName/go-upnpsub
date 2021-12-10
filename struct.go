@@ -2,13 +2,15 @@ package upnpsub
 
 import (
 	"encoding/xml"
+	"net/http"
 	"sync"
 )
 
 // ControlPoint handles the HTTP notify server and keeps track of subscriptions.
 type ControlPoint struct {
-	listenURI  string // listenURI is the URI for consuming notify requests.
-	listenPort string // listenPort is the HTTP server's port.
+	client     *http.Client // client is the http client to use for making subscribe, resubscribe, and unsubscribe http requests.
+	listenURI  string       // listenURI is the URI for consuming notify requests.
+	listenPort string       // listenPort is the HTTP server's port.
 
 	sidMapRWMu sync.RWMutex             // sidMapRWMu read-write mutex.
 	sidMap     map[string]*Subscription // sidMap hold all active subscriptions.
