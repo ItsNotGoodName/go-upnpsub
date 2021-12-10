@@ -41,8 +41,7 @@ func (cp *ControlPoint) Start() {
 }
 
 // NewSubscription subscribes to event publisher and returns a Subscription.
-//
-// It errors if the event publisher is unreachable or if the initial SUBSCRIBE request fails.
+// Errors if the event publisher is unreachable or if the initial SUBSCRIBE request fails.
 func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) (*Subscription, error) {
 	// Find callback ip
 	callbackIP, err := findCallbackIP(eventURL)
@@ -120,14 +119,14 @@ func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Println("ControlPoint.ServeHTTP:", err)
+		log.Println("ControlPoint.ServeHTTP(WARNING):", err)
 		return
 	}
 
 	// Parse xmlEvent from body
 	xmlEvent, err := unmarshalEventXML(body)
 	if err != nil {
-		log.Println("ControlPoint.ServeHTTP:", err)
+		log.Println("ControlPoint.ServeHTTP(WARNING):", err)
 		return
 	}
 
@@ -138,7 +137,7 @@ func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t := time.NewTimer(DefaultTimeout)
 	select {
 	case <-t.C:
-		log.Println("ControlPoint.ServeHTTP(ERROR): could not send event to subscription's Event")
+		log.Println("ControlPoint.ServeHTTP(ERROR): could not send event to subscription's Event channel")
 	case sub.Event <- &Event{Properties: properties, SEQ: seq, sid: sid}:
 		if !t.Stop() {
 			<-t.C
@@ -154,7 +153,7 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 	renew := func() {
 		d, err := cp.renew(ctx, sub)
 		if err != nil {
-			log.Print("ControlPoint.subscriptionLoop:", err)
+			log.Print("ControlPoint.subscriptionLoop(ERROR):", err)
 		}
 		t.Reset(d)
 	}
@@ -173,7 +172,7 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 			ctx := context.Background()
 			ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 			if err := cp.unsubscribe(ctx, sub); err != nil {
-				log.Print("ControlPoint.subscriptionLoop:", err)
+				log.Print("ControlPoint.subscriptionLoop(ERROR):", err)
 			}
 			cancel()
 
@@ -199,17 +198,15 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Duration, error) {
 	if !<-sub.Active {
 		if err := cp.subscribe(ctx, sub); err != nil {
-			log.Print("ControlPoint.subscriptionLoop:", err)
 			return getRenewDuration(sub), err
 		}
 		sub.setActive(ctx, true)
 		d := getRenewDuration(sub)
-		log.Printf("ControlPoint.subscriptionLoop: subscribe successful, will resubscribe in %s intervals", d)
+		log.Printf("ControlPoint.renew: subscribe successful, will resubscribe in %s intervals", d)
 		return d, nil
 	}
 	if err := cp.resubscribe(ctx, sub); err != nil {
 		sub.setActive(ctx, false)
-		log.Print("ControlPoint.subscriptionLoop:", err)
 		return DefaultTimeout, err
 	}
 	return getRenewDuration(sub), nil
@@ -238,13 +235,13 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 
 	// Check if request failed
 	if res.StatusCode != http.StatusOK {
-		return errors.New("invalid status " + res.Status)
+		return fmt.Errorf("subscribe: invalid response status %s", res.Status)
 	}
 
 	// Get SID
 	sid := res.Header.Get("sid")
 	if sid == "" {
-		return errors.New("subscribe's response has no sid")
+		return errors.New("subscribe: response did not supply a sid")
 	}
 
 	cp.sidMapRWMu.Lock()
@@ -289,7 +286,7 @@ func (cp *ControlPoint) unsubscribe(ctx context.Context, sub *Subscription) erro
 
 	// Check if request failed
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("subscribe: response's status code is invalid, %s", res.Status)
+		return fmt.Errorf("unsubscribe: invalid response status %s", res.Status)
 	}
 
 	return nil
@@ -317,7 +314,7 @@ func (cp *ControlPoint) resubscribe(ctx context.Context, sub *Subscription) erro
 
 	// Check if request failed
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("resubscribe: response's status code is invalid, %s", res.Status)
+		return fmt.Errorf("resubscribe: invalid response status %s", res.Status)
 	}
 
 	// Check request's SID header
@@ -326,7 +323,7 @@ func (cp *ControlPoint) resubscribe(ctx context.Context, sub *Subscription) erro
 		return errors.New("resubscribe: response did not supply a sid")
 	}
 	if sid != sub.sid {
-		return fmt.Errorf("resubscribe: response's sid does not match sub's sid, %s != %s", sid, sub.sid)
+		return fmt.Errorf("resubscribe: response's sid does not match subscriptions's sid, %s != %s", sid, sub.sid)
 	}
 
 	// Update sub's timeout
