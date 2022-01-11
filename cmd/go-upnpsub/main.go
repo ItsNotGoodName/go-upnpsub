@@ -42,9 +42,9 @@ func main() {
 	// Print events until done
 	for {
 		select {
-		case <-sub.Done:
+		case <-sub.DoneC:
 			return
-		case event := <-sub.Event:
+		case event := <-sub.EventC:
 			fmt.Println(">>>>> SEQ", event.SEQ)
 			for _, e := range event.Properties {
 				fmt.Printf("%q = %q\n", e.Name, e.Value)

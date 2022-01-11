@@ -18,15 +18,15 @@ type ControlPoint struct {
 
 // Subscription represents the subscription to the UPnP publisher.
 type Subscription struct {
-	Active        chan bool   // Active represents the subscription status to publisher.
-	Done          chan bool   // Done is closed when subscriptionLoop is finished.
-	Event         chan *Event // Event is the UPnP events from publisher.
-	callback      string      // callback is part of the UPnP header.
-	eventURL      string      // eventURL is the URL we are subscribed on the event publisher.
-	renewChan     chan bool   // renewChan forces a subscription renewal.
-	setActiveChan chan bool   // SetActiveChan sets the active status.
-	sid           string      // sid the header set by the UPnP publisher.
-	timeout       int         // timeout is the timeout seconds received from UPnP publisher.
+	ActiveC    chan bool   // ActiveC represents the subscription status to publisher.
+	DoneC      chan bool   // DoneC is closed when subscriptionLoop is finished.
+	EventC     chan *Event // EventC is the UPnP events from publisher.
+	callback   string      // callback is part of the UPnP header.
+	eventURL   string      // eventURL is the URL we are subscribed on the event publisher.
+	renewC     chan bool   // renewC forces a subscription renewal.
+	setActiveC chan bool   // SetActiveC sets the active status.
+	sid        string      // sid the header set by the UPnP publisher.
+	timeout    int         // timeout is the timeout seconds received from UPnP publisher.
 }
 
 // Property is the notify request's property.

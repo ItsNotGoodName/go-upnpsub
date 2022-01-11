@@ -51,13 +51,13 @@ func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) 
 
 	// Create sub
 	sub := &Subscription{
-		Active:        make(chan bool),
-		Done:          make(chan bool),
-		Event:         make(chan *Event),
-		callback:      fmt.Sprintf("<http://%s:%s%s>", callbackIP, cp.listenPort, cp.listenURI),
-		eventURL:      eventURL.String(),
-		renewChan:     make(chan bool),
-		setActiveChan: make(chan bool),
+		ActiveC:    make(chan bool),
+		DoneC:      make(chan bool),
+		EventC:     make(chan *Event),
+		callback:   fmt.Sprintf("<http://%s:%s%s>", callbackIP, cp.listenPort, cp.listenURI),
+		eventURL:   eventURL.String(),
+		renewC:     make(chan bool),
+		setActiveC: make(chan bool),
 	}
 
 	go sub.activeLoop()
@@ -65,7 +65,7 @@ func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) 
 	// Subscribe
 	d, err := cp.renew(ctx, sub)
 	if err != nil {
-		close(sub.Done)
+		close(sub.DoneC)
 		return nil, err
 	}
 
@@ -75,12 +75,12 @@ func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) 
 }
 
 // ServeHTTP handles notify requests from event publishers.
-func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// Get NT and NTS
 	nt, nts := r.Header.Get("NT"), r.Header.Get("NTS")
 	if nt == "" || nts == "" {
 		log.Println("ControlPoint.ServeHTTP(WARNING): request has no nt or nts")
-		w.WriteHeader(http.StatusBadRequest)
+		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
@@ -90,7 +90,7 @@ func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		seqInt, err := strconv.Atoi(seqStr)
 		if err != nil {
 			log.Println("ControlPoint.ServeHTTP(WARNING): invalid seq", err)
-			w.WriteHeader(http.StatusBadRequest)
+			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		seq = seqInt
@@ -99,7 +99,7 @@ func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Validate NT and NTS
 	if nt != NT || nts != NTS {
 		log.Printf("ControlPoint.ServeHTTP(WARNING): invalid nt or nts, %s, %s", nt, nts)
-		w.WriteHeader(http.StatusPreconditionFailed)
+		rw.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cp.sidMapRWMu.RUnlock()
 	if !ok {
 		log.Println("ControlPoint.ServeHTTP(WARNING): sid not found or valid,", sid)
-		w.WriteHeader(http.StatusPreconditionFailed)
+		rw.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
 
@@ -133,12 +133,12 @@ func (cp *ControlPoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse properties from xmlEvent
 	properties := unmarshalProperties(xmlEvent)
 
-	// Try to send event to sub's Event
+	// Try to send event to sub's EventC
 	t := time.NewTimer(DefaultTimeout)
 	select {
 	case <-t.C:
-		log.Println("ControlPoint.ServeHTTP(ERROR): could not send event to subscription's Event channel")
-	case sub.Event <- &Event{Properties: properties, SEQ: seq, sid: sid}:
+		log.Println("ControlPoint.ServeHTTP(ERROR): could not send event to subscription's EventC")
+	case sub.EventC <- &Event{Properties: properties, SEQ: seq, sid: sid}:
 		if !t.Stop() {
 			<-t.C
 		}
@@ -161,7 +161,7 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("ControlPoint.subscriptionLoop: ctx is done, starting cleanup")
+			log.Println("ControlPoint.subscriptionLoop: closing")
 
 			// Delete sub.sid from sidMap
 			cp.sidMapRWMu.Lock()
@@ -169,18 +169,17 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 			cp.sidMapRWMu.Unlock()
 
 			// Unsubscribe
-			ctx := context.Background()
-			ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 			if err := cp.unsubscribe(ctx, sub); err != nil {
 				log.Print("ControlPoint.subscriptionLoop(ERROR):", err)
 			}
 			cancel()
 
-			close(sub.Done)
+			close(sub.DoneC)
 
-			log.Println("ControlPoint.subscriptionLoop: cleanup finished")
+			log.Println("ControlPoint.subscriptionLoop: closed")
 			return
-		case <-sub.renewChan:
+		case <-sub.renewC:
 			// Manual renew
 			log.Println("ControlPoint.subscriptionLoop: starting manual renewal")
 			if !t.Stop() {
@@ -196,7 +195,7 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 
 // renew handles subscribing or resubscribing.
 func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Duration, error) {
-	if !<-sub.Active {
+	if !<-sub.ActiveC {
 		if err := cp.subscribe(ctx, sub); err != nil {
 			return getRenewDuration(sub), err
 		}
@@ -323,7 +322,7 @@ func (cp *ControlPoint) resubscribe(ctx context.Context, sub *Subscription) erro
 		return errors.New("resubscribe: response did not supply a sid")
 	}
 	if sid != sub.sid {
-		return fmt.Errorf("resubscribe: response's sid does not match subscriptions's sid, %s != %s", sid, sub.sid)
+		return fmt.Errorf("resubscribe: response's sid does not match subscription's sid, %s != %s", sid, sub.sid)
 	}
 
 	// Update sub's timeout

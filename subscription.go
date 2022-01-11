@@ -8,7 +8,7 @@ import (
 // Renew tells subscription to renew if it is not already renewing.
 func (sub *Subscription) Renew() {
 	select {
-	case sub.renewChan <- true:
+	case sub.renewC <- true:
 	default:
 	}
 }
@@ -20,11 +20,11 @@ func (sub *Subscription) activeLoop() {
 	active := false
 	for {
 		select {
-		case <-sub.Done:
-			close(sub.Active)
+		case <-sub.DoneC:
+			close(sub.ActiveC)
 			return
-		case active = <-sub.setActiveChan:
-		case sub.Active <- active:
+		case active = <-sub.setActiveC:
+		case sub.ActiveC <- active:
 		}
 	}
 }
@@ -33,6 +33,6 @@ func (sub *Subscription) activeLoop() {
 func (sub *Subscription) setActive(ctx context.Context, active bool) {
 	select {
 	case <-ctx.Done():
-	case sub.setActiveChan <- active:
+	case sub.setActiveC <- active:
 	}
 }
