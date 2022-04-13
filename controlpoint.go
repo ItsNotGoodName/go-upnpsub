@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -15,18 +14,41 @@ import (
 	"time"
 )
 
+// ControlPointImpl handles the HTTP notify server and keeps track of subscriptions.
+type ControlPointImpl struct {
+	client     *http.Client // client is the http client to use for making subscribe, resubscribe, and unsubscribe http requests.
+	listenURI  string       // listenURI is the URI for consuming notify requests.
+	listenPort string       // listenPort is the HTTP server's port.
+
+	sidMapRWMu sync.RWMutex                 // sidMapRWMu read-write mutex.
+	sidMap     map[string]*SubscriptionImpl // sidMap hold all active subscriptions.
+}
+
+// SubscriptionImpl represents the subscription to the UPnP publisher.
+type SubscriptionImpl struct {
+	ActiveC    chan bool   // ActiveC represents the subscription status to publisher.
+	DoneC      chan bool   // DoneC is closed when subscriptionLoop is finished.
+	EventC     chan *Event // EventC is the UPnP events from publisher.
+	callback   string      // callback is part of the UPnP header.
+	eventURL   string      // eventURL is the URL we are subscribed on the event publisher.
+	renewC     chan bool   // renewC forces a subscription renewal.
+	setActiveC chan bool   // SetActiveC sets the active status.
+	sid        string      // sid the header set by the UPnP publisher.
+	timeout    int         // timeout is the timeout seconds received from UPnP publisher.
+}
+
 // NewControlPoint creates a ControlPoint.
-func NewControlPoint() *ControlPoint {
+func NewControlPoint() *ControlPointImpl {
 	return NewControlPointWithPort(DefaultPort)
 }
 
 // NewControlPoint creates a ControlPoint that listens on a specific port.
-func NewControlPointWithPort(listenPort int) *ControlPoint {
-	cp := &ControlPoint{
+func NewControlPointWithPort(listenPort int) *ControlPointImpl {
+	cp := &ControlPointImpl{
 		client:     &http.Client{},
-		listenURI:  ListenURI,
+		listenURI:  DefaultURI,
 		listenPort: fmt.Sprint(listenPort),
-		sidMap:     make(map[string]*Subscription),
+		sidMap:     make(map[string]*SubscriptionImpl),
 		sidMapRWMu: sync.RWMutex{},
 	}
 
@@ -35,14 +57,14 @@ func NewControlPointWithPort(listenPort int) *ControlPoint {
 }
 
 // Start HTTP server that listens for notify requests.
-func (cp *ControlPoint) Start() {
+func (cp *ControlPointImpl) Start() {
 	log.Println("ControlPoint.Start: listening on port", cp.listenPort)
 	log.Fatal(http.ListenAndServe(":"+cp.listenPort, nil))
 }
 
 // NewSubscription subscribes to event publisher and returns a Subscription.
 // Errors if the event publisher is unreachable or if the initial SUBSCRIBE request fails.
-func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) (*Subscription, error) {
+func (cp *ControlPointImpl) NewSubscription(ctx context.Context, eventURL *url.URL) (*SubscriptionImpl, error) {
 	// Find callback ip
 	callbackIP, err := findCallbackIP(eventURL)
 	if err != nil {
@@ -50,7 +72,7 @@ func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) 
 	}
 
 	// Create sub
-	sub := &Subscription{
+	sub := &SubscriptionImpl{
 		ActiveC:    make(chan bool),
 		DoneC:      make(chan bool),
 		EventC:     make(chan *Event),
@@ -75,7 +97,7 @@ func (cp *ControlPoint) NewSubscription(ctx context.Context, eventURL *url.URL) 
 }
 
 // ServeHTTP handles notify requests from event publishers.
-func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (cp *ControlPointImpl) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// Get NT and NTS
 	nt, nts := r.Header.Get("NT"), r.Header.Get("NTS")
 	if nt == "" || nts == "" {
@@ -97,7 +119,7 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate NT and NTS
-	if nt != NT || nts != NTS {
+	if nt != headerNT || nts != headerNTS {
 		log.Printf("ControlPoint.ServeHTTP(WARNING): invalid nt or nts, %s, %s", nt, nts)
 		rw.WriteHeader(http.StatusPreconditionFailed)
 		return
@@ -116,25 +138,18 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Println("ControlPoint.ServeHTTP(WARNING):", err)
-		return
-	}
-
 	// Parse xmlEvent from body
-	xmlEvent, err := unmarshalEventXML(body)
+	xmlEvent, err := parseEventXML(r.Body)
 	if err != nil {
 		log.Println("ControlPoint.ServeHTTP(WARNING):", err)
 		return
 	}
 
 	// Parse properties from xmlEvent
-	properties := unmarshalProperties(xmlEvent)
+	properties := parseProperties(xmlEvent)
 
 	// Try to send event to sub's EventC
-	t := time.NewTimer(DefaultTimeout)
+	t := time.NewTimer(defaultDeadline)
 	select {
 	case <-t.C:
 		log.Println("ControlPoint.ServeHTTP(ERROR): could not send event to subscription's EventC")
@@ -146,7 +161,7 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 }
 
 // subscriptionLoop handles sending subscribe requests to event publisher.
-func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription, d time.Duration) {
+func (cp *ControlPointImpl) subscriptionLoop(ctx context.Context, sub *SubscriptionImpl, d time.Duration) {
 	log.Println("ControlPoint.subscriptionLoop: started")
 
 	t := time.NewTimer(d)
@@ -169,7 +184,7 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 			cp.sidMapRWMu.Unlock()
 
 			// Unsubscribe
-			ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+			ctx, cancel := context.WithTimeout(context.Background(), defaultDeadline)
 			if err := cp.unsubscribe(ctx, sub); err != nil {
 				log.Print("ControlPoint.subscriptionLoop(ERROR):", err)
 			}
@@ -194,25 +209,25 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 }
 
 // renew handles subscribing or resubscribing.
-func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Duration, error) {
+func (cp *ControlPointImpl) renew(ctx context.Context, sub *SubscriptionImpl) (time.Duration, error) {
 	if !<-sub.ActiveC {
 		if err := cp.subscribe(ctx, sub); err != nil {
-			return getRenewDuration(sub), err
+			return halfTimeoutDuration(sub.timeout), err
 		}
 		sub.setActive(ctx, true)
-		d := getRenewDuration(sub)
+		d := halfTimeoutDuration(sub.timeout)
 		log.Printf("ControlPoint.renew: subscribe successful, will resubscribe in %s intervals", d)
 		return d, nil
 	}
 	if err := cp.resubscribe(ctx, sub); err != nil {
 		sub.setActive(ctx, false)
-		return DefaultTimeout, err
+		return defaultDeadline, err
 	}
-	return getRenewDuration(sub), nil
+	return halfTimeoutDuration(sub.timeout), nil
 }
 
 // subscribe sends SUBSCRIBE request to event publisher.
-func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error {
+func (cp *ControlPointImpl) subscribe(ctx context.Context, sub *SubscriptionImpl) error {
 	// Create request
 	req, err := http.NewRequest("SUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
@@ -222,8 +237,8 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 
 	// Add headers to request
 	req.Header.Add("CALLBACK", sub.callback)
-	req.Header.Add("NT", NT)
-	req.Header.Add("TIMEOUT", Timeout)
+	req.Header.Add("NT", headerNT)
+	req.Header.Add("TIMEOUT", headerTimeout)
 
 	// Execute request
 	res, err := cp.client.Do(req)
@@ -255,7 +270,7 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 	cp.sidMapRWMu.Unlock()
 
 	// Update sub's timeout
-	timeout, err := unmarshalTimeout(res.Header.Get("timeout"))
+	timeout, err := parseTimeout(res.Header.Get("timeout"))
 	if err != nil {
 		return err
 	}
@@ -265,7 +280,7 @@ func (cp *ControlPoint) subscribe(ctx context.Context, sub *Subscription) error 
 }
 
 // unsubscribe sends an UNSUBSCRIBE request to event publisher.
-func (cp *ControlPoint) unsubscribe(ctx context.Context, sub *Subscription) error {
+func (cp *ControlPointImpl) unsubscribe(ctx context.Context, sub *SubscriptionImpl) error {
 	// Create request
 	req, err := http.NewRequest("UNSUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
@@ -292,7 +307,7 @@ func (cp *ControlPoint) unsubscribe(ctx context.Context, sub *Subscription) erro
 }
 
 // resubscribe sends a SUBSCRIBE request to event publisher that renews the existing subscription.
-func (cp *ControlPoint) resubscribe(ctx context.Context, sub *Subscription) error {
+func (cp *ControlPointImpl) resubscribe(ctx context.Context, sub *SubscriptionImpl) error {
 	// Create request
 	req, err := http.NewRequest("SUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
@@ -302,7 +317,7 @@ func (cp *ControlPoint) resubscribe(ctx context.Context, sub *Subscription) erro
 
 	// Add headers to request
 	req.Header.Add("SID", sub.sid)
-	req.Header.Add("TIMEOUT", Timeout)
+	req.Header.Add("TIMEOUT", headerTimeout)
 
 	// Execute request
 	res, err := cp.client.Do(req)
@@ -326,7 +341,7 @@ func (cp *ControlPoint) resubscribe(ctx context.Context, sub *Subscription) erro
 	}
 
 	// Update sub's timeout
-	timeout, err := unmarshalTimeout(res.Header.Get("timeout"))
+	timeout, err := parseTimeout(res.Header.Get("timeout"))
 	if err != nil {
 		return err
 	}

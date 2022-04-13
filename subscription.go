@@ -6,7 +6,7 @@ import (
 )
 
 // Renew tells subscription to renew if it is not already renewing.
-func (sub *Subscription) Renew() {
+func (sub *SubscriptionImpl) Renew() {
 	select {
 	case sub.renewC <- true:
 	default:
@@ -14,7 +14,7 @@ func (sub *Subscription) Renew() {
 }
 
 // activeLoop handles active status of subscription.
-func (sub *Subscription) activeLoop() {
+func (sub *SubscriptionImpl) activeLoop() {
 	log.Println("Subscription.activeLoop: started")
 
 	active := false
@@ -30,7 +30,7 @@ func (sub *Subscription) activeLoop() {
 }
 
 // setActive sets active status of subscription.
-func (sub *Subscription) setActive(ctx context.Context, active bool) {
+func (sub *SubscriptionImpl) setActive(ctx context.Context, active bool) {
 	select {
 	case <-ctx.Done():
 	case sub.setActiveC <- active:
