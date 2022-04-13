@@ -56,10 +56,15 @@ func (sub *Subscription) Done() <-chan struct{} {
 }
 
 func (sub *Subscription) Active() bool {
-	sub.activeTimeMu.Lock()
-	active := time.Since(sub.activeTime) < time.Duration(sub.timeout)*time.Second
-	sub.activeTimeMu.Unlock()
-	return active
+	select {
+	case <-sub.doneC:
+		return false
+	default:
+		sub.activeTimeMu.Lock()
+		active := time.Since(sub.activeTime) < time.Duration(sub.timeout)*time.Second
+		sub.activeTimeMu.Unlock()
+		return active
+	}
 }
 
 func (sub *Subscription) LastActive() time.Time {
@@ -72,12 +77,6 @@ func (sub *Subscription) LastActive() time.Time {
 func (sub *Subscription) setActive() {
 	sub.activeTimeMu.Lock()
 	sub.activeTime = time.Now()
-	sub.activeTimeMu.Unlock()
-}
-
-func (sub *Subscription) setInactive() {
-	sub.activeTimeMu.Lock()
-	sub.activeTime = time.Unix(0, 0)
 	sub.activeTimeMu.Unlock()
 }
 
@@ -153,8 +152,6 @@ func (sub *Subscription) unsubscribe(ctx context.Context) error {
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("unsubscribe: invalid response status %s", res.Status)
 	}
-
-	sub.setInactive()
 
 	return nil
 }
