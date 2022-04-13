@@ -85,7 +85,7 @@ func (sub *Subscription) subscribe(ctx context.Context, sidHook func(oldSID, new
 	// Create request
 	req, err := http.NewRequest("SUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("subscribe: %w", err)
 	}
 	req = req.WithContext(ctx)
 
@@ -97,7 +97,7 @@ func (sub *Subscription) subscribe(ctx context.Context, sidHook func(oldSID, new
 	// Execute request
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("subscribe: %w", err)
 	}
 	defer res.Body.Close()
 
@@ -120,7 +120,7 @@ func (sub *Subscription) subscribe(ctx context.Context, sidHook func(oldSID, new
 	// Update sub's timeout
 	timeout, err := parseTimeout(res.Header.Get("timeout"))
 	if err != nil {
-		return err
+		return fmt.Errorf("subscribe: %w", err)
 	}
 	sub.timeout = timeout
 
@@ -134,7 +134,7 @@ func (sub *Subscription) unsubscribe(ctx context.Context) error {
 	// Create request
 	req, err := http.NewRequest("UNSUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("unsubscribe: %w", err)
 	}
 	req = req.WithContext(ctx)
 
@@ -144,7 +144,7 @@ func (sub *Subscription) unsubscribe(ctx context.Context) error {
 	// Execute request
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("unsubscribe: %w", err)
 	}
 	defer res.Body.Close()
 
@@ -161,7 +161,7 @@ func (sub *Subscription) resubscribe(ctx context.Context) error {
 	// Create request
 	req, err := http.NewRequest("SUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("resubscribe: %w", err)
 	}
 	req = req.WithContext(ctx)
 
@@ -172,7 +172,7 @@ func (sub *Subscription) resubscribe(ctx context.Context) error {
 	// Execute request
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("resubscribe: %w", err)
 	}
 	defer res.Body.Close()
 
@@ -193,7 +193,7 @@ func (sub *Subscription) resubscribe(ctx context.Context) error {
 	// Update sub's timeout
 	timeout, err := parseTimeout(res.Header.Get("timeout"))
 	if err != nil {
-		return err
+		return fmt.Errorf("resubscribe: %w", err)
 	}
 	sub.timeout = timeout
 
