@@ -10,13 +10,12 @@ import (
 	"time"
 )
 
-// Subscription represents the subscription to the UPnP publisher.
 type Subscription struct {
 	// Static fields.
 	callbackHeader string        // callbackHeader is part of the UPnP header.
 	doneC          chan struct{} // doneC is closed when the subscription is closed.
-	eventC         chan *Event   // eventC is the UPnP events from publisher.
-	eventURL       string        // eventURL is the URL we are subscribed on the event publisher.
+	eventC         chan *Event   // eventC is the events from UPnP event publisher.
+	eventURL       string        // eventURL is the event URL of the UPnP event publisher.
 	renewC         chan struct{} // renewC forces a subscription renewal.
 
 	sid     string // sid the header set by the UPnP publisher.

@@ -1,3 +1,5 @@
+// Package upnpsub handles subscribing to UPnP events.
+// It tries to follow section 4 of "UPnP Device Architecture 1.0".
 package upnpsub
 
 import (
@@ -8,29 +10,31 @@ import (
 	"time"
 )
 
+// ControlPointInterface handles the HTTP notify requests and keeps track of subscriptions.
 type ControlPointInterface interface {
-	// ServeHTTP handles UPnP events from HTTP notify requests.
+	// ServeHTTP handles HTTP notify requests from UPnP event publishers.
 	ServeHTTP(http.ResponseWriter, *http.Request)
 	// URI returns the URI that the ControlPoint has to be mounted on.
 	URI() string
 	// Port returns the port that the ControlPoint has to listens on.
 	Port() int
-	// Subscribe to event publisher and returns a Subscription.
-	// Subscription is canceled when the provided context is done.
-	// ControlPoint must be started before calling this function.
+	// Subscribe to event publisher and return a Subscription.
+	// Subscription is unsubscribed when the provided context is done.
+	// ControlPoint must be listening before calling this function.
 	Subscribe(ctx context.Context, eventURL *url.URL) (SubscriptionInterface, error)
 }
 
+// SubscriptionInterface represents a subscription to UPnP event publisher.
 type SubscriptionInterface interface {
-	// Events returns channel that receives events from the UPnP event publisher.
+	// Events returns channel that receives events from the UPnP event publisher. Should only be consumed by one goroutine.
 	Events() <-chan *Event
-	// Renew queues an early renewal of the subscription.
+	// Renew queues an early subscription renewal.
 	Renew()
 	// Active returns true if the subscription is active.
 	Active() bool
 	// LastActive returns the time the subscription was last active.
 	LastActive() time.Time
-	// Done returns channel that signals when the subscription is done cleaning up.
+	// Done returns channel that signals when the subscription is done cleaning up after the context was canceled.
 	Done() <-chan struct{}
 }
 

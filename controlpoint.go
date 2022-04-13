@@ -1,5 +1,3 @@
-// Package upnpsub handles subscribing to UPnP events.
-// It tries to follow section 4 of "UPnP Device Architecture 1.0".
 package upnpsub
 
 import (
@@ -12,24 +10,25 @@ import (
 	"time"
 )
 
-// ControlPoint handles the HTTP notify server and keeps track of subscriptions.
 type ControlPoint struct {
-	uri  string // uri is the URI for consuming notify requests.
-	port int    // listenport is the HTTP server's port.
+	uri  string // uri is the URI that the control point has to be mounted on.
+	port int    // port is the port that the control point has to listen on.
 
-	sidMapRWMu sync.RWMutex             // sidMapRWMu read-write mutex.
+	sidMapRWMu sync.RWMutex             // sidMapRWMu protects sidMap.
 	sidMap     map[string]*Subscription // sidMap hold all active subscriptions.
 }
 
+// OptionPort sets the port for ControlPoint.
 func OptionPort(port int) func(cp *ControlPoint) {
 	return func(cp *ControlPoint) { cp.port = port }
 }
 
+// OptionURI sets the uri for ControlPoint.
 func OptionURI(uri string) func(cp *ControlPoint) {
 	return func(cp *ControlPoint) { cp.uri = uri }
 }
 
-// NewControlPoint creates a ControlPoint with port and URI.
+// NewControlPoint creates a new ControlPoint.
 func NewControlPoint(opts ...func(cp *ControlPoint)) ControlPointInterface {
 	cp := &ControlPoint{
 		uri:        DefaultURI,
@@ -135,7 +134,7 @@ func (cp *ControlPoint) Subscribe(ctx context.Context, eventURL *url.URL) (Subsc
 	return sub, nil
 }
 
-// subscriptionLoop handles sending subscribe requests to event publisher.
+// subscriptionLoop handles sending subscribe requests to UPnP event publisher.
 func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription, d time.Duration) {
 	log.Println("ControlPoint.subscriptionLoop: started")
 
