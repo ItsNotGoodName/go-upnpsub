@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-type ControlPoint interface {
+type ControlPointInterface interface {
 	// ServeHTTP handles UPnP events from HTTP notify requests.
 	ServeHTTP(http.ResponseWriter, *http.Request)
 	// URI returns the URI that the ControlPoint has to be mounted on.
@@ -18,16 +18,20 @@ type ControlPoint interface {
 	// Subscribe to event publisher and returns a Subscription.
 	// Subscription is canceled when the provided context is done.
 	// ControlPoint must be started before calling this function.
-	Subscribe(ctx context.Context, eventURL *url.URL) (Subscription, error)
+	Subscribe(ctx context.Context, eventURL *url.URL) (SubscriptionInterface, error)
 }
 
-type Subscription interface {
-	// Events returns channel that receives events from event publisher.
+type SubscriptionInterface interface {
+	// Events returns channel that receives events from the UPnP event publisher.
 	Events() <-chan *Event
-	Deadline() (deadline time.Time, ok bool)
+	// Renew queues an early renewal of the subscription.
+	Renew()
+	// Active returns true if the subscription is active.
+	Active() bool
+	// LastActive returns the time the subscription was last active.
+	LastActive() time.Time
+	// Done returns channel that signals when the subscription is done cleaning up.
 	Done() <-chan struct{}
-	Err() error
-	Value(key interface{}) interface{}
 }
 
 // Property is the notify request's property.

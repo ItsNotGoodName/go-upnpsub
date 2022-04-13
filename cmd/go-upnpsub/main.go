@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
@@ -12,8 +13,8 @@ import (
 )
 
 func main() {
-	// Parse user input
 	urlPtr := flag.String("url", "", "UPnP event url (e.g. http://192.168.1.23:8050/421fec64-9d4a-40e7-9ce9-058c474fc209/Radio/event)")
+	jsonPtr := flag.Bool("json", false, "Print json output")
 
 	flag.Parse()
 
@@ -24,37 +25,66 @@ func main() {
 
 	URL, err := url.Parse(*urlPtr)
 	if err != nil {
-		fmt.Println("Invalid url:", err)
+		fmt.Println("invalid url:", err)
 		return
 	}
 
-	// Create controlpoint
 	cp := upnpsub.NewControlPoint()
-	go cp.Start()
+	go upnpsub.ListenAndServe("", cp)
 
-	// Create subscription
-	sub, err := cp.NewSubscription(signalContext(), URL)
+	sub, err := cp.Subscribe(interruptContext(), URL)
 	if err != nil {
-		fmt.Println("Could not create subscription:", err)
+		fmt.Println("could not create subscription:", err)
 		return
 	}
 
-	// Print events until done
+	var print func(event *upnpsub.Event)
+	if *jsonPtr {
+		print = printJSON
+	} else {
+		print = printText
+	}
+
 	for {
 		select {
-		case <-sub.DoneC:
+		case <-sub.Done():
 			return
-		case event := <-sub.EventC:
-			fmt.Println(">>>>> SEQ", event.SEQ)
-			for _, e := range event.Properties {
-				fmt.Printf("%q = %q\n", e.Name, e.Value)
-			}
+		case event := <-sub.Events():
+			print(event)
 		}
 	}
 }
 
-// signalContext will return a context that will be cancelled on interrupt signal.
-func signalContext() context.Context {
+type EventJSON struct {
+	SEQ   int    `json:"seq"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func printJSON(event *upnpsub.Event) {
+	for _, e := range event.Properties {
+		b, err := json.Marshal(EventJSON{
+			SEQ:   event.SEQ,
+			Name:  e.Name,
+			Value: e.Value,
+		})
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(string(b))
+	}
+}
+
+func printText(event *upnpsub.Event) {
+	fmt.Println("> SEQ", event.SEQ)
+	for _, e := range event.Properties {
+		fmt.Printf("%q = %q\n", e.Name, e.Value)
+	}
+	fmt.Println("")
+}
+
+// interruptContext will return a context that will be cancelled on os interrupt signal.
+func interruptContext() context.Context {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 

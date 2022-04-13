@@ -26,7 +26,7 @@ const (
 var timeoutReg = regexp.MustCompile(`(?i)second-([0-9]*)`)
 
 // ListenAndServe is a wrapper for http.ListenAndServe.
-func ListenAndServe(host string, cp ControlPoint) error {
+func ListenAndServe(host string, cp ControlPointInterface) error {
 	return http.ListenAndServe(host+":"+strconv.Itoa(cp.Port()), cp)
 }
 
