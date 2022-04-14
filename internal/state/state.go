@@ -1,40 +1,40 @@
-package upnpsub
+package state
 
 import (
 	"sync"
 	"time"
 )
 
-type state struct {
+type State struct {
 	mu       sync.Mutex
 	now      time.Time
 	last     time.Time
 	duration time.Duration
 }
 
-func newState() *state {
+func New() *State {
 	t := time.Now()
-	return &state{
+	return &State{
 		now:  t,
 		last: t,
 	}
 }
 
-func (a *state) active() bool {
+func (a *State) Active() bool {
 	a.mu.Lock()
 	b := time.Since(a.now) < a.duration
 	a.mu.Unlock()
 	return b
 }
 
-func (a *state) lastActive() time.Time {
+func (a *State) LastActive() time.Time {
 	a.mu.Lock()
 	t := a.last
 	a.mu.Unlock()
 	return t
 }
 
-func (a *state) activate(seconds int) {
+func (a *State) Activate(seconds int) {
 	a.mu.Lock()
 	a.now = time.Now()
 	a.last = a.now
@@ -42,7 +42,7 @@ func (a *state) activate(seconds int) {
 	a.mu.Unlock()
 }
 
-func (a *state) deactivate() {
+func (a *State) Deactivate() {
 	a.mu.Lock()
 	a.now = time.Unix(0, 0)
 	a.mu.Unlock()
