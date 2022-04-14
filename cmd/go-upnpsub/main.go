@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"os/signal"
@@ -25,8 +26,7 @@ func main() {
 
 	URL, err := url.Parse(*urlPtr)
 	if err != nil {
-		fmt.Println("invalid url:", err)
-		return
+		log.Fatalln("invalid url:", err)
 	}
 
 	cp := upnpsub.NewControlPoint()
@@ -34,8 +34,7 @@ func main() {
 
 	sub, err := cp.Subscribe(interruptContext(), URL)
 	if err != nil {
-		fmt.Println("could not create subscription:", err)
-		return
+		log.Fatalln("could not create subscription:", err)
 	}
 
 	var print func(event *upnpsub.Event)
