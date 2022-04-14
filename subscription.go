@@ -33,10 +33,11 @@ func newSubscription(eventURL *url.URL, uri string, port int) (*Subscription, er
 
 	return &Subscription{
 		callbackHeader: fmt.Sprintf("<http://%s:%d%s>", callbackIP, port, uri),
-		eventURL:       eventURL.String(),
 		doneC:          make(chan struct{}),
 		eventC:         make(chan *Event, 8),
+		eventURL:       eventURL.String(),
 		renewC:         make(chan struct{}),
+		timeout:        minTimeout,
 	}, nil
 }
 

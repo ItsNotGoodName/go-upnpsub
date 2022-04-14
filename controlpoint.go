@@ -191,7 +191,7 @@ func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Dura
 			cp.sidMap[newSID] = sub
 			cp.sidMapRWMu.Unlock()
 		}); err != nil {
-			return halfTimeoutDuration(sub.timeout), err
+			return defaultDeadline, err
 		}
 
 		d := halfTimeoutDuration(sub.timeout)
