@@ -1,4 +1,9 @@
 # go-upnpsub
+[![GitHub](https://img.shields.io/github/license/itsnotgoodname/go-upnpsub)](./LICENSE)
+[![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/itsnotgoodname/go-upnpsub)](https://github.com/ItsNotGoodName/go-upnpsub/tags)
+[![GitHub last commit](https://img.shields.io/github/last-commit/itsnotgoodname/go-upnpsub)](https://github.com/ItsNotGoodName/go-upnpsub)
+[![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/itsnotgoodname/go-upnpsub)](./go.mod)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ItsNotGoodName/go-upnpsub.svg)](https://pkg.go.dev/github.com/ItsNotGoodName/go-upnpsub)
 
 Go library that handles subscribing to UPnP events.
 
