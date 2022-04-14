@@ -10,30 +10,30 @@ import (
 	"time"
 )
 
-type ControlPoint struct {
+type controlPoint struct {
 	uri  string // uri is the URI that the control point has to be mounted on.
 	port int    // port is the port that the control point has to listen on.
 
 	sidMapRWMu sync.RWMutex             // sidMapRWMu protects sidMap.
-	sidMap     map[string]*Subscription // sidMap hold all active subscriptions.
+	sidMap     map[string]*subscription // sidMap hold all active subscriptions.
 }
 
-// OptionPort sets the port for ControlPoint.
-func OptionPort(port int) func(cp *ControlPoint) {
-	return func(cp *ControlPoint) { cp.port = port }
+// WithPort sets the port for controlPoint.
+func WithPort(port int) func(cp *controlPoint) {
+	return func(cp *controlPoint) { cp.port = port }
 }
 
-// OptionURI sets the uri for ControlPoint.
-func OptionURI(uri string) func(cp *ControlPoint) {
-	return func(cp *ControlPoint) { cp.uri = uri }
+// WithURI sets the uri for controlPoint.
+func WithURI(uri string) func(cp *controlPoint) {
+	return func(cp *controlPoint) { cp.uri = uri }
 }
 
 // NewControlPoint creates a new ControlPoint.
-func NewControlPoint(opts ...func(cp *ControlPoint)) ControlPointInterface {
-	cp := &ControlPoint{
+func NewControlPoint(opts ...func(cp *controlPoint)) ControlPoint {
+	cp := &controlPoint{
 		uri:        DefaultURI,
 		port:       DefaultPort,
-		sidMap:     make(map[string]*Subscription),
+		sidMap:     make(map[string]*subscription),
 		sidMapRWMu: sync.RWMutex{},
 	}
 
@@ -44,21 +44,21 @@ func NewControlPoint(opts ...func(cp *ControlPoint)) ControlPointInterface {
 	return cp
 }
 
-func (cp *ControlPoint) URI() string {
+func (cp *controlPoint) URI() string {
 	return cp.uri
 }
 
-func (cp *ControlPoint) Port() int {
+func (cp *controlPoint) Port() int {
 	return cp.port
 }
 
-func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (cp *controlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// Get SEQ
 	var seq int
 	if seqStr := r.Header.Get("SEQ"); seqStr != "" {
 		seqInt, err := strconv.Atoi(seqStr)
 		if err != nil {
-			log.Println("ControlPoint.ServeHTTP(WARNING): invalid seq:", err)
+			log.Println("controlPoint.ServeHTTP(WARNING): invalid seq:", err)
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -68,14 +68,14 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// Get NT and NTS
 	nt, nts := r.Header.Get("NT"), r.Header.Get("NTS")
 	if nt == "" || nts == "" {
-		log.Println("ControlPoint.ServeHTTP(WARNING): request has no nt or nts")
+		log.Println("controlPoint.ServeHTTP(WARNING): request has no nt or nts")
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	// Validate NT and NTS
 	if nt != headerNT || nts != headerNTS {
-		log.Printf("ControlPoint.ServeHTTP(WARNING): invalid nt or nts, %s, %s", nt, nts)
+		log.Printf("controlPoint.ServeHTTP(WARNING): invalid nt or nts, %s, %s", nt, nts)
 		rw.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
@@ -88,7 +88,7 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	sub, ok := cp.sidMap[sid]
 	cp.sidMapRWMu.RUnlock()
 	if !ok {
-		log.Println("ControlPoint.ServeHTTP(WARNING): sid not found or valid,", sid)
+		log.Println("controlPoint.ServeHTTP(WARNING): sid not found or valid,", sid)
 		rw.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
@@ -96,7 +96,7 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// Parse xmlEvent from body
 	xmlEvent, err := parseEventXML(r.Body)
 	if err != nil {
-		log.Println("ControlPoint.ServeHTTP(WARNING):", err)
+		log.Println("controlPoint.ServeHTTP(WARNING):", err)
 		return
 	}
 
@@ -107,7 +107,7 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	t := time.NewTimer(defaultDeadline)
 	select {
 	case <-t.C:
-		log.Println("ControlPoint.ServeHTTP(ERROR): could not send event to subscription's event channel")
+		log.Println("controlPoint.ServeHTTP(ERROR): could not send event to subscription's event channel")
 	case sub.eventC <- &Event{Properties: properties, SEQ: seq, sid: sid}:
 		if !t.Stop() {
 			<-t.C
@@ -115,7 +115,7 @@ func (cp *ControlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (cp *ControlPoint) Subscribe(ctx context.Context, eventURL *url.URL) (SubscriptionInterface, error) {
+func (cp *controlPoint) Subscribe(ctx context.Context, eventURL *url.URL) (Subscription, error) {
 	// Create sub
 	sub, err := newSubscription(eventURL, cp.uri, cp.port)
 	if err != nil {
@@ -135,14 +135,14 @@ func (cp *ControlPoint) Subscribe(ctx context.Context, eventURL *url.URL) (Subsc
 }
 
 // subscriptionLoop handles sending subscribe requests to UPnP event publisher.
-func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription, d time.Duration) {
-	log.Println("ControlPoint.subscriptionLoop: started")
+func (cp *controlPoint) subscriptionLoop(ctx context.Context, sub *subscription, d time.Duration) {
+	log.Println("controlPoint.subscriptionLoop: started")
 
 	t := time.NewTimer(d)
 	renew := func() {
 		d, err := cp.renew(ctx, sub)
 		if err != nil {
-			log.Print("ControlPoint.subscriptionLoop(ERROR):", err)
+			log.Print("controlPoint.subscriptionLoop(ERROR):", err)
 		}
 		t.Reset(d)
 	}
@@ -150,7 +150,7 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("ControlPoint.subscriptionLoop: closing")
+			log.Println("controlPoint.subscriptionLoop: closing")
 
 			// Delete sub.sid from sidMap
 			cp.sidMapRWMu.Lock()
@@ -160,17 +160,17 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 			// Unsubscribe
 			ctx, cancel := context.WithTimeout(context.Background(), defaultDeadline)
 			if err := sub.unsubscribe(ctx); err != nil {
-				log.Print("ControlPoint.subscriptionLoop(ERROR):", err)
+				log.Print("controlPoint.subscriptionLoop(ERROR):", err)
 			}
 			cancel()
 
 			close(sub.doneC)
 
-			log.Println("ControlPoint.subscriptionLoop: closed")
+			log.Println("controlPoint.subscriptionLoop: closed")
 			return
 		case <-sub.renewC:
 			// Manual renew
-			log.Println("ControlPoint.subscriptionLoop: starting manual renewal")
+			log.Println("controlPoint.subscriptionLoop: starting manual renewal")
 			if !t.Stop() {
 				<-t.C
 			}
@@ -183,8 +183,8 @@ func (cp *ControlPoint) subscriptionLoop(ctx context.Context, sub *Subscription,
 }
 
 // renew handles subscribing or resubscribing.
-func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Duration, error) {
-	if !sub.Active() {
+func (cp *controlPoint) renew(ctx context.Context, sub *subscription) (time.Duration, error) {
+	if !sub.IsActive() {
 		if err := sub.subscribe(ctx, func(oldSID, newSID string) {
 			cp.sidMapRWMu.Lock()
 			delete(cp.sidMap, oldSID)
@@ -195,7 +195,7 @@ func (cp *ControlPoint) renew(ctx context.Context, sub *Subscription) (time.Dura
 		}
 
 		d := halfTimeoutDuration(sub.timeout)
-		log.Printf("ControlPoint.renew: subscribe successful, will resubscribe in %s intervals", d)
+		log.Printf("controlPoint.renew: subscribe successful, will resubscribe in %s intervals", d)
 
 		return d, nil
 	}

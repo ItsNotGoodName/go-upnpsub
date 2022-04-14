@@ -11,7 +11,7 @@ import (
 	"github.com/ItsNotGoodName/go-upnpsub/internal/state"
 )
 
-type Subscription struct {
+type subscription struct {
 	// Static fields.
 	callbackHeader string        // callbackHeader is part of the UPnP header.
 	doneC          chan struct{} // doneC is closed when the subscription is closed.
@@ -25,13 +25,13 @@ type Subscription struct {
 
 }
 
-func newSubscription(eventURL *url.URL, uri string, port int) (*Subscription, error) {
+func newSubscription(eventURL *url.URL, uri string, port int) (*subscription, error) {
 	callbackIP, err := findCallbackIP(eventURL)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Subscription{
+	return &subscription{
 		callbackHeader: fmt.Sprintf("<http://%s:%d%s>", callbackIP, port, uri),
 		doneC:          make(chan struct{}),
 		eventC:         make(chan *Event, 8),
@@ -42,22 +42,22 @@ func newSubscription(eventURL *url.URL, uri string, port int) (*Subscription, er
 	}, nil
 }
 
-func (sub *Subscription) Renew() {
+func (sub *subscription) Renew() {
 	select {
 	case sub.renewC <- struct{}{}:
 	default:
 	}
 }
 
-func (sub *Subscription) Events() <-chan *Event {
+func (sub *subscription) Events() <-chan *Event {
 	return sub.eventC
 }
 
-func (sub *Subscription) Done() <-chan struct{} {
+func (sub *subscription) Done() <-chan struct{} {
 	return sub.doneC
 }
 
-func (sub *Subscription) Active() bool {
+func (sub *subscription) IsActive() bool {
 	select {
 	case <-sub.doneC:
 		return false
@@ -66,12 +66,12 @@ func (sub *Subscription) Active() bool {
 	}
 }
 
-func (sub *Subscription) LastActive() time.Time {
+func (sub *subscription) LastActive() time.Time {
 	return sub.state.LastActive()
 }
 
 // subscribe sends SUBSCRIBE request to event publisher.
-func (sub *Subscription) subscribe(ctx context.Context, sidHook func(oldSID, newSID string)) error {
+func (sub *subscription) subscribe(ctx context.Context, sidHook func(oldSID, newSID string)) error {
 	success := false
 	defer func() {
 		if success {
@@ -126,37 +126,8 @@ func (sub *Subscription) subscribe(ctx context.Context, sidHook func(oldSID, new
 	return nil
 }
 
-// unsubscribe sends an UNSUBSCRIBE request to event publisher.
-func (sub *Subscription) unsubscribe(ctx context.Context) error {
-	// Create request
-	req, err := http.NewRequest("UNSUBSCRIBE", sub.eventURL, nil)
-	if err != nil {
-		return fmt.Errorf("unsubscribe: %w", err)
-	}
-	req = req.WithContext(ctx)
-
-	// Add headers to request
-	req.Header.Add("SID", sub.sid)
-
-	// Execute request
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("unsubscribe: %w", err)
-	}
-	defer res.Body.Close()
-
-	// Check if request failed
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("unsubscribe: invalid response status %s", res.Status)
-	}
-
-	sub.state.Deactivate()
-
-	return nil
-}
-
 // resubscribe sends a SUBSCRIBE request to event publisher that renews the existing subscription.
-func (sub *Subscription) resubscribe(ctx context.Context) error {
+func (sub *subscription) resubscribe(ctx context.Context) error {
 	success := false
 	defer func() {
 		if success {
@@ -206,6 +177,35 @@ func (sub *Subscription) resubscribe(ctx context.Context) error {
 
 	sub.timeout = timeout
 	success = true
+
+	return nil
+}
+
+// unsubscribe sends an UNSUBSCRIBE request to event publisher.
+func (sub *subscription) unsubscribe(ctx context.Context) error {
+	// Create request
+	req, err := http.NewRequest("UNSUBSCRIBE", sub.eventURL, nil)
+	if err != nil {
+		return fmt.Errorf("unsubscribe: %w", err)
+	}
+	req = req.WithContext(ctx)
+
+	// Add headers to request
+	req.Header.Add("SID", sub.sid)
+
+	// Execute request
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("unsubscribe: %w", err)
+	}
+	defer res.Body.Close()
+
+	// Check if request failed
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("unsubscribe: invalid response status %s", res.Status)
+	}
+
+	sub.state.Deactivate()
 
 	return nil
 }
