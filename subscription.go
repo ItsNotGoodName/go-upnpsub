@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 )
 
@@ -17,12 +16,11 @@ type Subscription struct {
 	eventC         chan *Event   // eventC is the events from UPnP event publisher.
 	eventURL       string        // eventURL is the event URL of the UPnP event publisher.
 	renewC         chan struct{} // renewC forces a subscription renewal.
+	state          *state        // state is the state of the subscription.
 
 	sid     string // sid the header set by the UPnP publisher.
 	timeout int    // timeout is the timeout seconds received from UPnP publisher.
 
-	activeTimeMu sync.Mutex // activeTimeMu protects activeTime.
-	activeTime   time.Time  // activeTime is the time the subscription was last active.
 }
 
 func newSubscription(eventURL *url.URL, uri string, port int) (*Subscription, error) {
@@ -38,6 +36,7 @@ func newSubscription(eventURL *url.URL, uri string, port int) (*Subscription, er
 		eventURL:       eventURL.String(),
 		renewC:         make(chan struct{}),
 		timeout:        minTimeout,
+		state:          newState(),
 	}, nil
 }
 
@@ -61,28 +60,25 @@ func (sub *Subscription) Active() bool {
 	case <-sub.doneC:
 		return false
 	default:
-		sub.activeTimeMu.Lock()
-		active := time.Since(sub.activeTime) < time.Duration(sub.timeout)*time.Second
-		sub.activeTimeMu.Unlock()
-		return active
+		return sub.state.active()
 	}
 }
 
 func (sub *Subscription) LastActive() time.Time {
-	sub.activeTimeMu.Lock()
-	t := sub.activeTime
-	sub.activeTimeMu.Unlock()
-	return t
-}
-
-func (sub *Subscription) setActive() {
-	sub.activeTimeMu.Lock()
-	sub.activeTime = time.Now()
-	sub.activeTimeMu.Unlock()
+	return sub.state.lastActive()
 }
 
 // subscribe sends SUBSCRIBE request to event publisher.
 func (sub *Subscription) subscribe(ctx context.Context, sidHook func(oldSID, newSID string)) error {
+	success := false
+	defer func() {
+		if success {
+			sub.state.activate(sub.timeout)
+		} else {
+			sub.state.deactivate()
+		}
+	}()
+
 	// Create request
 	req, err := http.NewRequest("SUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
@@ -107,25 +103,27 @@ func (sub *Subscription) subscribe(ctx context.Context, sidHook func(oldSID, new
 		return fmt.Errorf("subscribe: invalid response status %s", res.Status)
 	}
 
+	// Get sub's timeout
+	timeout, err := parseTimeout(res.Header.Get("timeout"))
+	if err != nil {
+		return fmt.Errorf("subscribe: %w", err)
+	}
+
 	// Get SID
 	sid := res.Header.Get("sid")
 	if sid == "" {
 		return errors.New("subscribe: response did not supply a sid")
 	}
 
+	// Update sub's timeout
+	sub.timeout = timeout
+
 	// Update sub's sid and call sid hook
 	oldSID := sub.sid
 	sub.sid = sid
 	sidHook(oldSID, sub.sid)
 
-	// Update sub's timeout
-	timeout, err := parseTimeout(res.Header.Get("timeout"))
-	if err != nil {
-		return fmt.Errorf("subscribe: %w", err)
-	}
-	sub.timeout = timeout
-
-	sub.setActive()
+	success = true
 
 	return nil
 }
@@ -154,11 +152,22 @@ func (sub *Subscription) unsubscribe(ctx context.Context) error {
 		return fmt.Errorf("unsubscribe: invalid response status %s", res.Status)
 	}
 
+	sub.state.deactivate()
+
 	return nil
 }
 
 // resubscribe sends a SUBSCRIBE request to event publisher that renews the existing subscription.
 func (sub *Subscription) resubscribe(ctx context.Context) error {
+	success := false
+	defer func() {
+		if success {
+			sub.state.activate(sub.timeout)
+		} else {
+			sub.state.deactivate()
+		}
+	}()
+
 	// Create request
 	req, err := http.NewRequest("SUBSCRIBE", sub.eventURL, nil)
 	if err != nil {
@@ -198,7 +207,7 @@ func (sub *Subscription) resubscribe(ctx context.Context) error {
 	}
 	sub.timeout = timeout
 
-	sub.setActive()
+	success = true
 
 	return nil
 }
