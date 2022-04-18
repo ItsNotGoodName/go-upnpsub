@@ -8,17 +8,17 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ItsNotGoodName/go-upnpsub/internal/state"
+	"github.com/ItsNotGoodName/go-upnpsub/internal/status"
 )
 
 type subscription struct {
 	// Static fields.
-	callbackHeader string        // callbackHeader is part of the UPnP header.
-	doneC          chan struct{} // doneC is closed when the subscription is closed.
-	eventC         chan *Event   // eventC is the events from UPnP event publisher.
-	eventURL       string        // eventURL is the event URL of the UPnP event publisher.
-	renewC         chan struct{} // renewC forces a subscription renewal.
-	state          *state.State  // state is the state of the subscription.
+	callbackHeader string         // callbackHeader is part of the UPnP header.
+	doneC          chan struct{}  // doneC is closed when the subscription is closed.
+	eventC         chan *Event    // eventC is the events from UPnP event publisher.
+	eventURL       string         // eventURL is the event URL of the UPnP event publisher.
+	renewC         chan struct{}  // renewC forces a subscription renewal.
+	status         *status.Status // status is the subscription status.
 
 	sid     string // sid the header set by the UPnP publisher.
 	timeout int    // timeout is the timeout seconds received from UPnP publisher.
@@ -38,7 +38,7 @@ func newSubscription(eventURL *url.URL, uri string, port int) (*subscription, er
 		eventURL:       eventURL.String(),
 		renewC:         make(chan struct{}),
 		timeout:        minTimeout,
-		state:          state.New(),
+		status:         status.New(),
 	}, nil
 }
 
@@ -62,12 +62,12 @@ func (sub *subscription) IsActive() bool {
 	case <-sub.doneC:
 		return false
 	default:
-		return sub.state.Active()
+		return sub.status.Active()
 	}
 }
 
 func (sub *subscription) LastActive() time.Time {
-	return sub.state.LastActive()
+	return sub.status.LastActive()
 }
 
 // subscribe sends SUBSCRIBE request to event publisher.
@@ -75,9 +75,9 @@ func (sub *subscription) subscribe(ctx context.Context, sidHook func(oldSID, new
 	success := false
 	defer func() {
 		if success {
-			sub.state.Activate(sub.timeout)
+			sub.status.Activate(sub.timeout)
 		} else {
-			sub.state.Deactivate()
+			sub.status.Deactivate()
 		}
 	}()
 
@@ -131,9 +131,9 @@ func (sub *subscription) resubscribe(ctx context.Context) error {
 	success := false
 	defer func() {
 		if success {
-			sub.state.Activate(sub.timeout)
+			sub.status.Activate(sub.timeout)
 		} else {
-			sub.state.Deactivate()
+			sub.status.Deactivate()
 		}
 	}()
 
@@ -205,7 +205,7 @@ func (sub *subscription) unsubscribe(ctx context.Context) error {
 		return fmt.Errorf("unsubscribe: invalid response status %s", res.Status)
 	}
 
-	sub.state.Deactivate()
+	sub.status.Deactivate()
 
 	return nil
 }
