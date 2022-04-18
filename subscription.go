@@ -20,9 +20,8 @@ type subscription struct {
 	renewC         chan struct{}  // renewC forces a subscription renewal.
 	status         *status.Status // status is the subscription status.
 
-	sid     string // sid the header set by the UPnP publisher.
-	timeout int    // timeout is the timeout seconds received from UPnP publisher.
-
+	sid     string // sid is the unique id set by the UPnP event publisher.
+	timeout int    // timeout is the timeout in seconds received from UPnP event publisher.
 }
 
 func newSubscription(eventURL *url.URL, uri string, port int) (*subscription, error) {
@@ -70,7 +69,7 @@ func (sub *subscription) LastActive() time.Time {
 	return sub.status.LastActive()
 }
 
-// subscribe sends SUBSCRIBE request to event publisher.
+// subscribe sends SUBSCRIBE request to UPnP event publisher.
 func (sub *subscription) subscribe(ctx context.Context, sidHook func(oldSID, newSID string)) error {
 	success := false
 	defer func() {
@@ -126,7 +125,7 @@ func (sub *subscription) subscribe(ctx context.Context, sidHook func(oldSID, new
 	return nil
 }
 
-// resubscribe sends a SUBSCRIBE request to event publisher that renews the existing subscription.
+// resubscribe sends a SUBSCRIBE request to UPnP event publisher that renews the existing subscription.
 func (sub *subscription) resubscribe(ctx context.Context) error {
 	success := false
 	defer func() {
@@ -181,7 +180,7 @@ func (sub *subscription) resubscribe(ctx context.Context) error {
 	return nil
 }
 
-// unsubscribe sends an UNSUBSCRIBE request to event publisher.
+// unsubscribe sends an UNSUBSCRIBE request to UPnP event publisher.
 func (sub *subscription) unsubscribe(ctx context.Context) error {
 	// Create request
 	req, err := http.NewRequest("UNSUBSCRIBE", sub.eventURL, nil)

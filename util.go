@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	DefaultPort     = 8058              // DefaultPort is the port that the HTTP server listens on.
+	DefaultPort     = 8058              // DefaultPort is the default port that the HTTP server listens on.
 	DefaultURI      = "/eventSub"       // DefaultURI is the default URI where the UPnP publisher sends notify requests.
-	defaultDeadline = 10 * time.Second  // defaultDeadline is the deadline for actions.
-	defaultTimeout  = 300               // defaultTimeout is the timeout in seconds for UPnP subscription.
-	minTimeout      = 1                 // minTimeout is the minimum timeout in seconds for UPnP subscription.
+	defaultDeadline = 10 * time.Second  // defaultDeadline is the default deadline for actions.
+	defaultTimeout  = 300               // defaultTimeout is the default timeout in seconds for a UPnP subscription.
+	minTimeout      = 1                 // minTimeout is the minimum timeout in seconds for a UPnP subscription.
 	headerNT        = "upnp:event"      // headerNT is part of the UPnP header.
 	headerNTS       = "upnp:propchange" // headerNTS is part of the UPnP header.
 	headerTimeout   = "Second-300"      // headerTimeout is part of the UPnP header.
@@ -55,7 +55,7 @@ func parseTimeout(timeout string) (int, error) {
 	return timeoutInt, nil
 }
 
-// halfTimeoutDuration returns half the timeout as a time duration.
+// halfTimeoutDuration returns half the timeout as time.Duration.
 func halfTimeoutDuration(timeout int) time.Duration {
 	return time.Duration(timeout/2) * time.Second
 }

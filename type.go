@@ -18,7 +18,7 @@ type ControlPoint interface {
 	URI() string
 	// Port returns the port that the ControlPoint has to listens on.
 	Port() int
-	// Subscribe to event publisher and return a Subscription.
+	// Subscribe to UPnP event publisher and return a Subscription.
 	// Subscription is unsubscribed when the provided context is done.
 	// ControlPoint must be listening before calling this function.
 	Subscribe(ctx context.Context, eventURL *url.URL) (Subscription, error)
@@ -26,7 +26,7 @@ type ControlPoint interface {
 
 // Subscription represents a subscription to UPnP event publisher.
 type Subscription interface {
-	// Events returns channel that receives events from the UPnP event publisher. Should only be consumed by one goroutine.
+	// Events returns channel that receives events from UPnP event publisher. Should only be consumed by one goroutine.
 	Events() <-chan *Event
 	// Renew queues an early subscription renewal.
 	Renew()

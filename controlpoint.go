@@ -11,19 +11,19 @@ import (
 )
 
 type controlPoint struct {
-	uri  string // uri is the URI that the control point has to be mounted on.
-	port int    // port is the port that the control point has to listen on.
+	uri  string // uri is the URI that the ControlPoint has to be mounted on.
+	port int    // port is the port that the ControlPoint has to listen on.
 
 	sidMapRWMu sync.RWMutex             // sidMapRWMu protects sidMap.
 	sidMap     map[string]*subscription // sidMap hold all active subscriptions.
 }
 
-// WithPort sets the port for controlPoint.
+// WithPort sets the port for ControlPoint.
 func WithPort(port int) func(cp *controlPoint) {
 	return func(cp *controlPoint) { cp.port = port }
 }
 
-// WithURI sets the uri for controlPoint.
+// WithURI sets the uri for ControlPoint.
 func WithURI(uri string) func(cp *controlPoint) {
 	return func(cp *controlPoint) { cp.uri = uri }
 }
