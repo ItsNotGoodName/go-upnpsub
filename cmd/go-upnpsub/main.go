@@ -14,8 +14,9 @@ import (
 )
 
 func main() {
-	urlPtr := flag.String("url", "", "UPnP event url (e.g. http://192.168.1.23:8050/421fec64-9d4a-40e7-9ce9-058c474fc209/Radio/event)")
-	jsonPtr := flag.Bool("json", false, "Print json output")
+	portPtr := flag.Int("port", upnpsub.DefaultPort, "Listen port for UPnP control point.")
+	urlPtr := flag.String("url", "", "UPnP event url (e.g. http://192.168.1.23:8050/421fec64-9d4a-40e7-9ce9-058c474fc209/Radio/event).")
+	jsonPtr := flag.Bool("json", false, "Print json output.")
 
 	flag.Parse()
 
@@ -29,8 +30,12 @@ func main() {
 		log.Fatalln("invalid url:", err)
 	}
 
-	cp := upnpsub.NewControlPoint()
-	go upnpsub.ListenAndServe("", cp)
+	cp := upnpsub.NewControlPoint(upnpsub.WithPort(*portPtr))
+	go func() {
+		if err := upnpsub.ListenAndServe("", cp); err != nil {
+			log.Fatalln("main.main:", err)
+		}
+	}()
 
 	sub, err := cp.Subscribe(interruptContext(), URL)
 	if err != nil {
