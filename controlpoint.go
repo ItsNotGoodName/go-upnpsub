@@ -91,7 +91,7 @@ func (cp *controlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	sub, ok := cp.sidMap[sid]
 	cp.sidMapRWMu.RUnlock()
 	if !ok {
-		log.Println("controlPoint.ServeHTTP(WARNING): sid not found or valid,", sid)
+		log.Println("controlPoint.ServeHTTP(WARNING): sid not found or valid:", sid)
 		rw.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
@@ -139,13 +139,13 @@ func (cp *controlPoint) Subscribe(ctx context.Context, eventURL *url.URL) (Subsc
 
 // subscriptionLoop handles sending subscribe requests to UPnP event publisher.
 func (cp *controlPoint) subscriptionLoop(ctx context.Context, sub *subscription, d time.Duration) {
-	log.Println("controlPoint.subscriptionLoop: started")
+	log.Printf("controlPoint.subscriptionLoop: %s: started", sub.eventURL)
 
 	t := time.NewTimer(d)
 	renew := func() {
 		d, err := cp.renew(ctx, sub)
 		if err != nil {
-			log.Print("controlPoint.subscriptionLoop(ERROR):", err)
+			log.Println("controlPoint.subscriptionLoop(ERROR):", err)
 		}
 		t.Reset(d)
 	}
@@ -153,7 +153,7 @@ func (cp *controlPoint) subscriptionLoop(ctx context.Context, sub *subscription,
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("controlPoint.subscriptionLoop: closing")
+			log.Printf("controlPoint.subscriptionLoop: %s: closing", sub.eventURL)
 
 			// Delete sub.sid from sidMap
 			cp.sidMapRWMu.Lock()
@@ -163,17 +163,16 @@ func (cp *controlPoint) subscriptionLoop(ctx context.Context, sub *subscription,
 			// Unsubscribe
 			ctx, cancel := context.WithTimeout(context.Background(), defaultDeadline)
 			if err := sub.unsubscribe(ctx); err != nil {
-				log.Print("controlPoint.subscriptionLoop(ERROR):", err)
+				log.Println("controlPoint.subscriptionLoop(ERROR):", err)
 			}
 			cancel()
 
+			log.Printf("controlPoint.subscriptionLoop: %s: closed", sub.eventURL)
 			close(sub.doneC)
-
-			log.Println("controlPoint.subscriptionLoop: closed")
 			return
 		case <-sub.renewC:
 			// Manual renew
-			log.Println("controlPoint.subscriptionLoop: starting manual renewal")
+			log.Printf("controlPoint.subscriptionLoop: %s: starting manual renewal", sub.eventURL)
 			if !t.Stop() {
 				<-t.C
 			}
@@ -198,7 +197,7 @@ func (cp *controlPoint) renew(ctx context.Context, sub *subscription) (time.Dura
 		}
 
 		d := halfTimeoutDuration(sub.timeout)
-		log.Printf("controlPoint.renew: subscribe successful, will resubscribe in %s intervals", d)
+		log.Printf("controlPoint.renew: %s: subscribe successful, will resubscribe in %s intervals", sub.eventURL, d)
 
 		return d, nil
 	}
