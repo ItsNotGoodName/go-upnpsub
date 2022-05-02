@@ -18,18 +18,21 @@ type controlPoint struct {
 	sidMap     map[string]*subscription // sidMap hold all active subscriptions.
 }
 
+// ControlPointOption is an option for ControlPoint.
+type ControlPointOption func(*controlPoint)
+
 // WithPort sets the port for ControlPoint.
-func WithPort(port int) func(cp *controlPoint) {
+func WithPort(port int) ControlPointOption {
 	return func(cp *controlPoint) { cp.port = port }
 }
 
 // WithURI sets the uri for ControlPoint.
-func WithURI(uri string) func(cp *controlPoint) {
+func WithURI(uri string) ControlPointOption {
 	return func(cp *controlPoint) { cp.uri = uri }
 }
 
 // NewControlPoint creates a new ControlPoint.
-func NewControlPoint(opts ...func(cp *controlPoint)) ControlPoint {
+func NewControlPoint(options ...ControlPointOption) ControlPoint {
 	cp := &controlPoint{
 		uri:        DefaultURI,
 		port:       DefaultPort,
@@ -37,8 +40,8 @@ func NewControlPoint(opts ...func(cp *controlPoint)) ControlPoint {
 		sidMapRWMu: sync.RWMutex{},
 	}
 
-	for _, opt := range opts {
-		opt(cp)
+	for _, option := range options {
+		option(cp)
 	}
 
 	return cp
@@ -108,7 +111,7 @@ func (cp *controlPoint) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	select {
 	case <-t.C:
 		log.Println("controlPoint.ServeHTTP(ERROR): could not send event to subscription's event channel")
-	case sub.eventC <- &Event{Properties: properties, SEQ: seq, sid: sid}:
+	case sub.eventC <- Event{Properties: properties, SEQ: seq}:
 		if !t.Stop() {
 			<-t.C
 		}

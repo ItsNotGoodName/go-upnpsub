@@ -15,7 +15,7 @@ type subscription struct {
 	// Static fields.
 	callbackHeader string         // callbackHeader is part of the UPnP header.
 	doneC          chan struct{}  // doneC is closed when the subscription is closed.
-	eventC         chan *Event    // eventC is the events from UPnP event publisher.
+	eventC         chan Event     // eventC is the events from UPnP event publisher.
 	eventURL       string         // eventURL is the event URL of the UPnP event publisher.
 	renewC         chan struct{}  // renewC forces a subscription renewal.
 	status         *status.Status // status is the subscription status.
@@ -33,7 +33,7 @@ func newSubscription(eventURL *url.URL, uri string, port int) (*subscription, er
 	return &subscription{
 		callbackHeader: fmt.Sprintf("<http://%s:%d%s>", callbackIP, port, uri),
 		doneC:          make(chan struct{}),
-		eventC:         make(chan *Event, 8),
+		eventC:         make(chan Event, 8),
 		eventURL:       eventURL.String(),
 		renewC:         make(chan struct{}),
 		timeout:        minTimeout,
@@ -48,7 +48,7 @@ func (sub *subscription) Renew() {
 	}
 }
 
-func (sub *subscription) Events() <-chan *Event {
+func (sub *subscription) Events() <-chan Event {
 	return sub.eventC
 }
 

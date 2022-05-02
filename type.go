@@ -27,7 +27,7 @@ type ControlPoint interface {
 // Subscription represents a subscription to UPnP event publisher.
 type Subscription interface {
 	// Events returns channel that receives events from UPnP event publisher. Should only be consumed by one goroutine.
-	Events() <-chan *Event
+	Events() <-chan Event
 	// Renew queues an early subscription renewal.
 	Renew()
 	// IsActive returns true if the subscription is active.
@@ -48,7 +48,6 @@ type Property struct {
 type Event struct {
 	Properties []Property
 	SEQ        int
-	sid        string
 }
 
 // propertyVariableXML represents the inner information of the property tag in the notify request's xml.

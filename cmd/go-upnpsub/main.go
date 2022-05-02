@@ -49,7 +49,7 @@ func main() {
 		case <-sub.Done():
 			return
 		case event := <-sub.Events():
-			print(event)
+			print(&event)
 		}
 	}
 }
